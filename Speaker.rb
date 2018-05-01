@@ -1,13 +1,6 @@
 ﻿module BusinessLayer
 	class Speaker
-		def initialize(firstName, lastName, email, experience, hasBlog, blogUrl, browser, certifications, employer, registrationFee, sessions)
-			@requiredCertifications = 3
-			@requiredYearsOfExperience = 10
-			@minRequiredBrowserVersion = 9
-			@oldTechnologies = ["Cobol", "Punch Cards", "Commodore", "VBScript"]
-			@domains = ["aol.com", "hotmail.com", "prodigy.com", "CompuServe.com"]
-			@employers = ["Microsoft", "Google", "Fog Creek Software", "37Signals"]
-			
+		def initialize(firstName, lastName, email, experience, hasBlog, blogUrl, browser, certifications, employer, registrationFee, sessions)		
 			@firstName = firstName
 			@lastName = lastName
 			@email = email
@@ -110,81 +103,93 @@
 		end
 		
 		def Register(repository)
-			if System::String.IsNullOrWhiteSpace(self.FirstName) then
+		
+			#lets init some vars
+			speakerId = nil
+			good = false
+			appr = false
+			
+			#@nt = ["MVC4", "Node.js", "CouchDB", "KendoUI", "Dapper", "Angular"]
+			@ot = ["Cobol", "Punch Cards", "Commodore", "VBScript"]
+			
+			#DEFECT #5274 DA 12/10/2012
+			#We weren't filtering out the prodigy domain so I added it.
+			@domains = ["aol.com", "hotmail.com", "prodigy.com", "CompuServe.com"]
+			
+			if not System::String.IsNullOrWhiteSpace(FirstName) then
+				if not System::String.IsNullOrWhiteSpace(LastName) then
+					if not System::String.IsNullOrWhiteSpace(Email) then
+						#put list of employers in array
+						emps = ["Microsoft", "Google", "Fog Creek Software", "37Signals"]
+						#DFCT #838 Jimmy 
+						#We're now requiring 3 certifications so I changed the hard coded number. Boy, programming is hard.
+						good = ((Exp > 10 or HasBlog or Certifications.Count() > 3 or emps.Contains(Employer)))
+						if not good then
+							#need to get just the domain from the email
+							emailDomain = Email.Split('@').Last()
+							if not domains.Contains(emailDomain) and (not (Browser.Name == WebBrowser.BrowserName.InternetExplorer and Browser.MajorVersion < 9)) then
+								good = true
+							end
+						end
+						
+						if good then
+							#DEFECT #5013 CO 1/12/2012
+							#We weren't requiring at least one session
+							if Sessions.Count() != 0 then
+								enumerator = Sessions.GetEnumerator()
+								while enumerator.MoveNext()
+									session = enumerator.Current
+									#foreach (var tech in nt)
+									#{
+									#    if (session.Title.Contains(tech))
+									#    {
+									#        session.Approved = true;
+									#        break;
+									#    }
+									#}
+									enumerator = ot.GetEnumerator()
+									while enumerator.MoveNext()
+										tech = enumerator.Current
+										if session.Title.Contains(tech) or session.Description.Contains(tech) then
+											session.Approved = false
+											break
+										else
+											session.Approved = true
+											appr = true
+										end
+									end
+								end
+							else
+								raise ArgumentException.new("Can't register speaker with no sessions to present.")
+							end
+							
+							if appr then
+								#Now, save the speaker and sessions to the db.
+								begin
+									speakerId = repository.SaveSpeaker(self)
+								rescue Exception => e
+								ensure
+								end
+							else
+								raise NoSessionsApprovedException.new("No sessions approved.")
+							end
+						else
+							raise SpeakerDoesntMeetRequirementsException.new("Speaker doesn't meet our abitrary and capricious standards.")
+						end
+					else
+						raise ArgumentNullException.new("Email is required.")
+					end
+				else
+					raise ArgumentNullException.new("Last name is required.")
+				end
+			else
 				raise ArgumentNullException.new("First Name is required")
 			end
-			if System::String.IsNullOrWhiteSpace(self.LastName) then
-				raise ArgumentNullException.new("Last name is required.")
-			end
-			if System::String.IsNullOrWhiteSpace(self.Email) then
-				raise ArgumentNullException.new("Email is required.")
-			end
-			if self.Sessions.Count() == 0 then
-				raise ArgumentException.new("Can't register speaker with no sessions to present.")
-			end
-			speakerId = nil
-			isGood = false
-			isApproved = false
-			isGood = self.meetsMinimunRequirements()
-			if not isGood then
-				raise SpeakerDoesntMeetRequirementsException.new("Speaker doesn't meet our abitrary and capricious standards.")
-			end
-			isApproved = self.hasSessionApproved()
-				
-			if not isApproved then
-				raise NoSessionsApprovedException.new("No sessions approved.")
-			end
 			
-			self.calculateRegistrationFee()
-			begin
-				speakerId = repository.SaveSpeaker(self)
-			rescue Exception => e
-				raise e
-			ensure
-			end
+			#if we got this far, the speaker is registered.
 			return speakerId
 		end
 		
-		def hasSessionApproved()
-			result = true
-			enumerator = Sessions.GetEnumerator()
-			while enumerator.MoveNext()
-				session = enumerator.Current
-				enumerator = oldTechnologies.GetEnumerator()
-				while enumerator.MoveNext()
-					technology = enumerator.Current
-					if session.Title.Contains(technology) or session.Description.Contains(technology) then
-						session.Approved = false
-						result = false
-						break
-					else
-						session.Approved = true
-					end
-				end
-			end
-			return result
-		end
-		
-		def meetsMinimunRequirements()
-			splitted = self.Email.Split('@')
-			emailDomain = splitted[splitted.Length - 1]
-			result = ((self.Experience > @requiredYearsOfExperience or self.HasBlog or self.Certifications.Count() > @requiredCertifications or @employers.Contains(self.Employer) or (not @domains.Contains(emailDomain) and self.Browser.Name != WebBrowser.BrowserName.InternetExplorer and self.Browser.MajorVersion >= @minRequiredBrowserVersion)))
-			return result
-		end
-		
-		def calculateRegistrationFee()
-			if self.Experience <= 1 then
-				self.RegistrationFee = 500
-			elsif self.Experience >= 2 and self.Experience <= 3 then
-				self.RegistrationFee = 250
-			elsif self.Experience >= 4 and self.Experience <= 5 then
-				self.RegistrationFee = 100
-			elsif self.Experience >= 6 and self.Experience <= 9 then
-				self.RegistrationFee = 50
-			else
-				self.RegistrationFee = 0
-			end
-		end
 	end	
 		
 	class SpeakerDoesntMeetRequirementsException < Exception
